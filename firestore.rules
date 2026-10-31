@@ -136,17 +136,17 @@ service cloud.firestore {
     }
 
     match /products/{productId} {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow create, update, delete: if isAdmin() && (request.method == 'delete' || isValidProduct(request.resource.data));
     }
 
     match /notifications/{notificationId} {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow create, update, delete: if isAdmin() && (request.method == 'delete' || isValidNotification(request.resource.data));
     }
 
     match /stock_updates/{updateId} {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow create, update, delete: if isAdmin() && (request.method == 'delete' || isValidStockUpdate(request.resource.data));
     }
 
