@@ -1,5 +1,6 @@
 {
   "name": "Swami Footwear",
   "description": "A premium footwear shop mobile app with AI chatbot, product catalog, and admin dashboard.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -110,6 +110,18 @@ service cloud.firestore {
         isValidDateString(data.createdAt);
     }
 
+    function isValidOrder(data) {
+      return hasOnlyAllowedFields(['userId', 'userName', 'userEmail', 'totalAmount', 'status', 'items', 'createdAt', 'shippingAddress']) &&
+        data.userId is string && data.userId.size() > 0 && data.userId.size() <= 128 &&
+        data.userName is string && data.userName.size() > 0 && data.userName.size() <= 200 &&
+        data.totalAmount is number && data.totalAmount >= 0 &&
+        (data.status == 'pending' || data.status == 'confirmed' || data.status == 'shipped' || data.status == 'delivered' || data.status == 'cancelled') &&
+        data.items is list && data.items.size() <= 50 &&
+        isValidDateString(data.createdAt) &&
+        (!('userEmail' in data) || isValidEmail(data.userEmail)) &&
+        (!('shippingAddress' in data) || (data.shippingAddress is string && data.shippingAddress.size() <= 500));
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -136,6 +148,16 @@ service cloud.firestore {
     match /stock_updates/{updateId} {
       allow read: if isAuthenticated();
       allow create, update, delete: if isAdmin() && (request.method == 'delete' || isValidStockUpdate(request.resource.data));
+    }
+
+    match /orders/{orderId} {
+      allow get: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow list: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && isValidOrder(request.resource.data) &&
+                    (request.resource.data.userId == request.auth.uid || isAdmin());
+      allow update: if isAuthenticated() && isValidOrder(request.resource.data) &&
+                    (isAdmin() || (resource.data.userId == request.auth.uid && request.resource.data.userId == resource.data.userId));
+      allow delete: if isAdmin();
     }
 
     match /test/connection {

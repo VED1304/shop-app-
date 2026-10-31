@@ -1,50 +1,94 @@
-import { GoogleGenAI } from "@google/genai";
 import { ChatMessage, Product } from "../types";
-import { SHOP_NAME, SHOP_STORY } from "../constants";
 
-const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
-
-export async function getChatResponse(history: ChatMessage[], products: Product[], userMessage: string): Promise<string> {
-  const model = "gemini-3-flash-preview";
-  
-  const productContext = products.map(p => `- ${p.name}: ₹${p.price} (${p.category}) - ${p.description}`).join('\n');
-  
-  const systemInstruction = `
-    You are a polite and helpful AI assistant for "${SHOP_NAME}".
-    Shop Background: ${SHOP_STORY}
-    
-    Available Products:
-    ${productContext}
-    
-    Guidelines:
-    1. Be professional, friendly, and concise.
-    2. Answer questions about products, prices, and categories.
-    3. Suggest footwear based on user needs (e.g., formal, sports, casual).
-    4. If asked about something outside the shop's scope, politely redirect to footwear.
-    5. Always mention that customers can visit the shop or contact via WhatsApp for more details.
-  `;
-
+export async function getChatResponse(
+  history: ChatMessage[],
+  products: Product[],
+  userMessage: string
+): Promise<string> {
   try {
-    const response = await genAI.models.generateContent({
-      model: model,
-      contents: [
-        { role: 'user', parts: [{ text: systemInstruction }] },
-        ...history.map(msg => ({
-          role: msg.role,
-          parts: [{ text: msg.text }]
-        })),
-        { role: 'user', parts: [{ text: userMessage }] }
-      ],
-      config: {
-        temperature: 0.7,
-        topP: 0.95,
-        topK: 40,
-      }
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        history,
+        products,
+        userMessage,
+      }),
     });
 
-    return response.text || "I'm sorry, I couldn't process that. Please try again or contact us via WhatsApp.";
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.error || `Server responded with ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.text || "I'm sorry, I couldn't process that. Please try again or contact us via WhatsApp.";
   } catch (error) {
-    console.error("AI Chat Error:", error);
+    console.error("AI Chat Client Error:", error);
     return "I'm having some trouble connecting right now. Please check back later or call us directly!";
+  }
+}
+
+export async function streamChatResponse(
+  history: ChatMessage[],
+  products: Product[],
+  userMessage: string,
+  onChunk: (text: string) => void
+): Promise<string> {
+  try {
+    const response = await fetch('/api/chat/stream', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        history,
+        products,
+        userMessage,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Server responded with ${response.status}`);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error("No response body reader available");
+    }
+
+    const decoder = new TextDecoder();
+    let accumulated = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const raw = decoder.decode(value, { stream: true });
+      const lines = raw.split('\n');
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const payload = line.slice(6).trim();
+          if (payload === '[DONE]') continue;
+          try {
+            const parsed = JSON.parse(payload);
+            if (parsed.text) {
+              accumulated += parsed.text;
+              onChunk(accumulated);
+            }
+          } catch {
+            // Ignore partial parse
+          }
+        }
+      }
+    }
+
+    return accumulated;
+  } catch (error) {
+    console.error("AI Chat Stream Client Error:", error);
+    return getChatResponse(history, products, userMessage);
   }
 }

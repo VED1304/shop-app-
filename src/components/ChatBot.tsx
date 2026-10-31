@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChatMessage, Product } from '../types';
-import { getChatResponse } from '../services/geminiService';
+import { streamChatResponse } from '../services/geminiService';
 
 interface ChatBotProps {
   products: Product[];
@@ -27,14 +27,42 @@ export default function ChatBot({ products }: ChatBotProps) {
 
     const userMsg = input.trim();
     setInput('');
-    setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
+    const updatedHistory = [...messages, { role: 'user' as const, text: userMsg }];
+    setMessages(prev => [...prev, { role: 'user', text: userMsg }, { role: 'model', text: '' }]);
     setIsLoading(true);
 
     try {
-      const response = await getChatResponse(messages, products, userMsg);
-      setMessages(prev => [...prev, { role: 'model', text: response }]);
+      let currentText = '';
+      await streamChatResponse(updatedHistory, products, userMsg, (accumulated) => {
+        currentText = accumulated;
+        setIsLoading(false);
+        setMessages(prev => {
+          const next = [...prev];
+          next[next.length - 1] = { role: 'model', text: accumulated };
+          return next;
+        });
+      });
+
+      if (!currentText) {
+        setMessages(prev => {
+          const next = [...prev];
+          next[next.length - 1] = { 
+            role: 'model', 
+            text: "I'm sorry, I couldn't process that. Please try again or contact us via WhatsApp." 
+          };
+          return next;
+        });
+      }
     } catch (error) {
       console.error("Chat Error:", error);
+      setMessages(prev => {
+        const next = [...prev];
+        next[next.length - 1] = { 
+          role: 'model', 
+          text: "I'm having some trouble connecting right now. Please check back later or call us directly!" 
+        };
+        return next;
+      });
     } finally {
       setIsLoading(false);
     }

@@ -51,6 +51,23 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["message", "createdAt"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Customer order details and history",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "totalAmount": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "confirmed", "shipped", "delivered", "cancelled"] },
+        "items": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "shippingAddress": { "type": "string" }
+      },
+      "required": ["userId", "userName", "totalAmount", "status", "createdAt"]
     }
   },
   "firestore": {
@@ -69,6 +86,10 @@
     "/stock_updates/{updateId}": {
       "schema": "StockUpdate",
       "description": "Daily stock updates"
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Customer orders and order history"
     }
   }
 }

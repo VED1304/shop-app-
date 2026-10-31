@@ -12,7 +12,9 @@ import {
   ArrowRight,
   Search,
   Filter,
-  X
+  X,
+  Check,
+  ShoppingBag as BagIcon
 } from 'lucide-react';
 import { 
   auth, 
@@ -23,21 +25,26 @@ import {
   onSnapshot, 
   collection, 
   query, 
+  where,
   orderBy, 
   limit,
   doc,
   setDoc,
   getDoc,
+  addDoc,
   handleFirestoreError,
   OperationType
 } from './firebase';
-import { User, Product, StockUpdate, Notification } from './types';
+import { User, Product, StockUpdate, Notification, Order } from './types';
 import { SHOP_NAME, SHOP_STORY, WHATSAPP_GROUP_LINK, SHOP_PHONE, CATEGORIES } from './constants';
 import BottomNav from './components/BottomNav';
 import ProductCard from './components/ProductCard';
 import ChatBot from './components/ChatBot';
 import AdminDashboard from './components/AdminDashboard';
 import ErrorBoundary from './components/ErrorBoundary';
+import MyOrdersModal from './components/MyOrdersModal';
+
+const FOOTWEAR_SIZES = ['UK 6', 'UK 7', 'UK 8', 'UK 9', 'UK 10', 'UK 11'];
 
 export default function App() {
   return (
@@ -54,7 +61,15 @@ function AppContent() {
   const [products, setProducts] = useState<Product[]>([]);
   const [stockUpdates, setStockUpdates] = useState<StockUpdate[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [allOrders, setAllOrders] = useState<Order[]>([]);
+  const [isOrdersModalOpen, setIsOrdersModalOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [selectedSize, setSelectedSize] = useState('UK 8');
+  const [orderQuantity, setOrderQuantity] = useState(1);
+  const [orderAddress, setOrderAddress] = useState('');
+  const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
+  const [orderSuccessNotice, setOrderSuccessNotice] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [sortBy, setSortBy] = useState('newest');
@@ -119,6 +134,85 @@ function AppContent() {
       unsubscribeNotifications();
     };
   }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setOrders([]);
+      setAllOrders([]);
+      return;
+    }
+
+    // 1. Fetch current user's orders
+    const qUserOrders = query(
+      collection(db, 'orders'),
+      where('userId', '==', user.uid)
+    );
+    const unsubUserOrders = onSnapshot(
+      qUserOrders,
+      (snapshot) => {
+        const userOrds = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
+        userOrds.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        setOrders(userOrds);
+      },
+      (error) => handleFirestoreError(error, OperationType.LIST, 'orders')
+    );
+
+    // 2. If admin, also fetch all orders for management
+    let unsubAllOrders: (() => void) | undefined;
+    if (user.role === 'admin') {
+      const qAllOrders = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
+      unsubAllOrders = onSnapshot(
+        qAllOrders,
+        (snapshot) => {
+          setAllOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order)));
+        },
+        (error) => handleFirestoreError(error, OperationType.LIST, 'orders')
+      );
+    }
+
+    return () => {
+      unsubUserOrders();
+      if (unsubAllOrders) unsubAllOrders();
+    };
+  }, [user?.uid, user?.role]);
+
+  const handlePlaceOrder = async () => {
+    if (!selectedProduct || !user) return;
+    setIsSubmittingOrder(true);
+    try {
+      const newOrderData = {
+        userId: user.uid,
+        userName: user.name,
+        userEmail: user.email || '',
+        totalAmount: selectedProduct.price * orderQuantity,
+        status: 'pending' as const,
+        items: [
+          {
+            productId: selectedProduct.id,
+            productName: selectedProduct.name,
+            productImage: selectedProduct.imageUrl,
+            price: selectedProduct.price,
+            quantity: orderQuantity,
+            size: selectedSize
+          }
+        ],
+        shippingAddress: orderAddress.trim() || 'Store Pickup at Swami Footwear',
+        createdAt: new Date().toISOString()
+      };
+
+      await addDoc(collection(db, 'orders'), newOrderData);
+      setOrderSuccessNotice('Order placed successfully! Check My Orders.');
+      setTimeout(() => {
+        setOrderSuccessNotice(null);
+        setSelectedProduct(null);
+        setIsOrdersModalOpen(true);
+      }, 1000);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'orders');
+    } finally {
+      setIsSubmittingOrder(false);
+    }
+  };
 
   const handleLogin = async () => {
     try {
@@ -257,25 +351,50 @@ function AppContent() {
             <section className="grid grid-cols-2 gap-4">
               <a 
                 href={`tel:${SHOP_PHONE}`}
-                className="bg-white border border-black/10 p-5 rounded-2xl flex flex-col items-center gap-3 shadow-sm active:scale-95 transition-transform"
+                className="bg-white border border-black/10 p-5 rounded-2xl flex flex-col items-center text-center gap-2 shadow-sm active:scale-95 transition-transform hover:border-black/30"
               >
                 <div className="w-10 h-10 bg-stone-100 rounded-full flex items-center justify-center">
                   <Phone size={20} />
                 </div>
-                <span className="text-[10px] font-bold uppercase tracking-widest">Call Shop</span>
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-widest block">Call Shop</span>
+                  <span className="text-[11px] font-black text-black block mt-0.5">+91 9904648282</span>
+                </div>
               </a>
               <a 
-                href={WHATSAPP_GROUP_LINK}
+                href={`https://wa.me/${SHOP_PHONE.replace('+', '')}?text=Hi%20Swami%20Footwear`}
                 target="_blank"
                 rel="noreferrer"
-                className="bg-white border border-black/10 p-5 rounded-2xl flex flex-col items-center gap-3 shadow-sm active:scale-95 transition-transform"
+                className="bg-white border border-black/10 p-5 rounded-2xl flex flex-col items-center text-center gap-2 shadow-sm active:scale-95 transition-transform hover:border-emerald-300"
               >
-                <div className="w-10 h-10 bg-green-50 rounded-full flex items-center justify-center text-green-600">
-                  <Users size={20} />
+                <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center">
+                  <MessageCircle size={20} />
                 </div>
-                <span className="text-[10px] font-bold uppercase tracking-widest">Join Group</span>
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-widest block">WhatsApp Inquiry</span>
+                  <span className="text-[11px] font-black text-emerald-700 block mt-0.5">+91 9904648282</span>
+                </div>
               </a>
             </section>
+
+            {/* WhatsApp Community Group */}
+            <a 
+              href={WHATSAPP_GROUP_LINK}
+              target="_blank"
+              rel="noreferrer"
+              className="bg-white border border-black/10 p-4 rounded-2xl flex items-center justify-between shadow-sm active:scale-98 transition-transform"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 bg-stone-100 text-black rounded-xl flex items-center justify-center">
+                  <Users size={18} />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold uppercase tracking-wider">Join WhatsApp Group</h4>
+                  <p className="text-[10px] text-black/40 font-medium">Daily deals and new drop updates</p>
+                </div>
+              </div>
+              <ChevronRight size={16} className="text-black/30" />
+            </a>
           </motion.div>
         )}
 
@@ -398,34 +517,58 @@ function AppContent() {
             </header>
 
             <div className="space-y-4">
-              <div className="bg-white p-6 rounded-3xl border border-black/5 shadow-sm space-y-6">
-                <div className="flex items-center justify-between group cursor-pointer">
+              <div className="bg-white p-6 rounded-3xl border border-black/5 shadow-sm space-y-4">
+                <div 
+                  onClick={() => setIsOrdersModalOpen(true)}
+                  className="flex items-center justify-between group cursor-pointer hover:bg-stone-50 p-2.5 -mx-2.5 rounded-2xl transition-colors"
+                >
                   <div className="flex items-center gap-4">
                     <div className="w-10 h-10 bg-stone-100 rounded-2xl flex items-center justify-center">
                       <ShoppingBag size={18} />
                     </div>
-                    <span className="text-xs font-bold uppercase tracking-widest">My Orders</span>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold uppercase tracking-widest">My Orders</span>
+                        {orders.length > 0 && (
+                          <span className="text-[10px] bg-black text-white px-2 py-0.5 rounded-full font-black">
+                            {orders.length}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-black/40 font-medium">View and track order history</p>
+                    </div>
                   </div>
                   <ChevronRight size={16} className="text-black/20 group-hover:translate-x-1 transition-transform" />
                 </div>
-                <div className="flex items-center justify-between group cursor-pointer">
+                <div className="flex items-center justify-between group cursor-pointer hover:bg-stone-50 p-2.5 -mx-2.5 rounded-2xl transition-colors">
                   <div className="flex items-center gap-4">
                     <div className="w-10 h-10 bg-stone-100 rounded-2xl flex items-center justify-center">
                       <Bell size={18} />
                     </div>
-                    <span className="text-xs font-bold uppercase tracking-widest">Notifications</span>
+                    <div>
+                      <span className="text-xs font-bold uppercase tracking-widest">Notifications</span>
+                      <p className="text-[10px] text-black/40 font-medium">Updates & offers</p>
+                    </div>
                   </div>
                   <ChevronRight size={16} className="text-black/20 group-hover:translate-x-1 transition-transform" />
                 </div>
-                <div className="flex items-center justify-between group cursor-pointer">
+                <a 
+                  href={`https://wa.me/${SHOP_PHONE.replace('+', '')}?text=Hi%20Swami%20Footwear%20Support`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center justify-between group cursor-pointer hover:bg-stone-50 p-2.5 -mx-2.5 rounded-2xl transition-colors"
+                >
                   <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 bg-stone-100 rounded-2xl flex items-center justify-center">
+                    <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center">
                       <MessageCircle size={18} />
                     </div>
-                    <span className="text-xs font-bold uppercase tracking-widest">Support Chat</span>
+                    <div>
+                      <span className="text-xs font-bold uppercase tracking-widest">WhatsApp Support</span>
+                      <p className="text-[10px] text-black/40 font-medium">+91 9904648282 (Direct)</p>
+                    </div>
                   </div>
                   <ChevronRight size={16} className="text-black/20 group-hover:translate-x-1 transition-transform" />
-                </div>
+                </a>
               </div>
 
               <button
@@ -449,7 +592,8 @@ function AppContent() {
             <AdminDashboard 
               products={products} 
               stockUpdates={stockUpdates} 
-              notifications={notifications} 
+              notifications={notifications}
+              orders={allOrders}
             />
           </motion.div>
         )}
@@ -507,19 +651,97 @@ function AppContent() {
                   </p>
                 </div>
 
-                <div className="pt-4 space-y-4">
+                {/* Size Selection */}
+                <div className="space-y-2">
+                  <h3 className="text-[10px] font-black uppercase tracking-widest text-black/40">Select Size</h3>
+                  <div className="flex gap-2 flex-wrap">
+                    {FOOTWEAR_SIZES.map((sz) => (
+                      <button
+                        key={sz}
+                        type="button"
+                        onClick={() => setSelectedSize(sz)}
+                        className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
+                          selectedSize === sz
+                            ? 'bg-black text-white shadow-sm'
+                            : 'bg-stone-100 text-black/60 hover:text-black border border-black/5'
+                        }`}
+                      >
+                        {sz}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Quantity & Delivery Note */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-black/40">Qty</label>
+                    <div className="flex items-center bg-stone-100 rounded-xl p-1 justify-between">
+                      <button
+                        type="button"
+                        onClick={() => setOrderQuantity(Math.max(1, orderQuantity - 1))}
+                        className="w-7 h-7 flex items-center justify-center font-bold text-black"
+                      >
+                        -
+                      </button>
+                      <span className="text-xs font-black">{orderQuantity}</span>
+                      <button
+                        type="button"
+                        onClick={() => setOrderQuantity(orderQuantity + 1)}
+                        className="w-7 h-7 flex items-center justify-center font-bold text-black"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                  <div className="col-span-2 space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-black/40">Delivery / Pickup Note</label>
+                    <input
+                      type="text"
+                      value={orderAddress}
+                      onChange={(e) => setOrderAddress(e.target.value)}
+                      placeholder="e.g. Surat, Gujarat (or Store Pickup)"
+                      className="w-full bg-stone-100 border-none rounded-xl p-2.5 text-xs focus:ring-2 focus:ring-black outline-none"
+                    />
+                  </div>
+                </div>
+
+                {orderSuccessNotice && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl text-xs font-bold flex items-center justify-center gap-2"
+                  >
+                    <Check size={16} />
+                    <span>{orderSuccessNotice}</span>
+                  </motion.div>
+                )}
+
+                <div className="pt-2 space-y-3">
+                  <button 
+                    onClick={handlePlaceOrder}
+                    disabled={isSubmittingOrder || selectedProduct.stockCount <= 0}
+                    className="w-full bg-black text-white p-4 rounded-2xl font-bold uppercase tracking-widest flex items-center justify-center gap-2 shadow-xl active:scale-95 transition-all disabled:opacity-50"
+                  >
+                    <BagIcon size={18} />
+                    {isSubmittingOrder 
+                      ? 'Placing Order...' 
+                      : `Place Order • ₹${(selectedProduct.price * orderQuantity).toLocaleString()}`}
+                  </button>
+
                   <a 
-                    href={`https://wa.me/${SHOP_PHONE.replace('+', '')}?text=Hi, I'm interested in ${selectedProduct.name}`}
+                    href={`https://wa.me/${SHOP_PHONE.replace('+', '')}?text=Hi,%20I'm%20interested%20in%20${encodeURIComponent(selectedProduct.name)}%20(${selectedSize})`}
                     target="_blank"
                     rel="noreferrer"
-                    className="w-full bg-black text-white p-5 rounded-2xl font-bold uppercase tracking-widest flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-transform"
+                    className="w-full bg-stone-100 text-black border border-black/10 p-4 rounded-2xl font-bold uppercase tracking-widest flex items-center justify-center gap-2 shadow-sm active:scale-95 transition-transform hover:bg-stone-200"
                   >
-                    <MessageCircle size={20} />
-                    Inquire via WhatsApp
+                    <MessageCircle size={18} className="text-emerald-600" />
+                    Inquire on WhatsApp (+91 9904648282)
                   </a>
+
                   <button 
                     onClick={() => setSelectedProduct(null)}
-                    className="w-full bg-stone-100 text-black p-5 rounded-2xl font-bold uppercase tracking-widest active:scale-95 transition-transform"
+                    className="w-full text-black/40 hover:text-black py-2 text-[10px] font-bold uppercase tracking-widest transition-colors"
                   >
                     Back to Shop
                   </button>
@@ -529,6 +751,16 @@ function AppContent() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <MyOrdersModal
+        isOpen={isOrdersModalOpen}
+        onClose={() => setIsOrdersModalOpen(false)}
+        orders={orders}
+        onBrowseProducts={() => {
+          setIsOrdersModalOpen(false);
+          setActiveTab('products');
+        }}
+      />
 
       <BottomNav 
         activeTab={activeTab} 

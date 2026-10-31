@@ -1,7 +1,7 @@
 export const SHOP_NAME = "Swami Footwear";
 export const SHOP_STORY = "Swami Footwear has been a trusted name in quality footwear for over a decade. We believe in comfort, style, and durability. Our mission is to provide premium footwear that makes every step a confident one.";
 export const WHATSAPP_GROUP_LINK = "https://chat.whatsapp.com/JIvYWfuiA4IKzxj2gpgl7C?mode=gi_t";
-export const SHOP_PHONE = "+919876543210"; // Placeholder, update with real one
+export const SHOP_PHONE = "+919904648282";
 export const CATEGORIES = ["Men", "Women", "Kids", "Sports", "Formal", "Casual"];
 
 export const LOGO_SVG = `

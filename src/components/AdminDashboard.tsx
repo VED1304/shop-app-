@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Plus, Trash2, Edit2, Bell, RefreshCw, X, Save, Image as ImageIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Product, StockUpdate, Notification } from '../types';
+import { Product, StockUpdate, Notification, Order } from '../types';
 import { db, collection, addDoc, updateDoc, deleteDoc, doc, handleFirestoreError, OperationType } from '../firebase';
 import { CATEGORIES } from '../constants';
 
@@ -9,9 +9,11 @@ interface AdminDashboardProps {
   products: Product[];
   stockUpdates: StockUpdate[];
   notifications: Notification[];
+  orders?: Order[];
 }
 
-export default function AdminDashboard({ products, stockUpdates, notifications }: AdminDashboardProps) {
+export default function AdminDashboard({ products, stockUpdates, notifications, orders = [] }: AdminDashboardProps) {
+  const [activeAdminTab, setActiveAdminTab] = useState<'inventory' | 'orders'>('inventory');
   const [isAddingProduct, setIsAddingProduct] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [newProduct, setNewProduct] = useState<Partial<Product>>({
@@ -21,6 +23,19 @@ export default function AdminDashboard({ products, stockUpdates, notifications }
   const [newNotification, setNewNotification] = useState({ title: '', body: '' });
   const [isUpdatingStock, setIsUpdatingStock] = useState(false);
   const [newStockUpdate, setNewStockUpdate] = useState('');
+  const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
+
+  const handleUpdateOrderStatus = async (orderId: string, newStatus: Order['status']) => {
+    setUpdatingOrderId(orderId);
+    try {
+      const orderRef = doc(db, 'orders', orderId);
+      await updateDoc(orderRef, { status: newStatus });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `orders/${orderId}`);
+    } finally {
+      setUpdatingOrderId(null);
+    }
+  };
 
   const handleAddProduct = async () => {
     if (!newProduct.name || !newProduct.imageUrl) return;
@@ -93,52 +108,154 @@ export default function AdminDashboard({ products, stockUpdates, notifications }
         <p className="text-black/40 text-xs font-bold uppercase tracking-widest">Manage Swami Footwear</p>
       </header>
 
-      <div className="grid grid-cols-2 gap-4 mb-8">
+      {/* Tab Switcher */}
+      <div className="flex bg-stone-200/60 p-1 rounded-2xl mb-6">
         <button
-          onClick={() => setIsAddingProduct(true)}
-          className="bg-black text-white p-4 rounded-2xl flex flex-col items-center gap-2 shadow-lg"
+          onClick={() => setActiveAdminTab('inventory')}
+          className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+            activeAdminTab === 'inventory' ? 'bg-black text-white shadow-sm' : 'text-black/50 hover:text-black'
+          }`}
         >
-          <Plus size={24} />
-          <span className="text-[10px] font-bold uppercase tracking-widest">Add Product</span>
+          Inventory ({products.length})
         </button>
         <button
-          onClick={() => setIsSendingNotification(true)}
-          className="bg-white border border-black/10 p-4 rounded-2xl flex flex-col items-center gap-2 shadow-sm"
+          onClick={() => setActiveAdminTab('orders')}
+          className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${
+            activeAdminTab === 'orders' ? 'bg-black text-white shadow-sm' : 'text-black/50 hover:text-black'
+          }`}
         >
-          <Bell size={24} />
-          <span className="text-[10px] font-bold uppercase tracking-widest">Notify Users</span>
-        </button>
-        <button
-          onClick={() => setIsUpdatingStock(true)}
-          className="bg-white border border-black/10 p-4 rounded-2xl flex flex-col items-center gap-2 shadow-sm col-span-2"
-        >
-          <RefreshCw size={24} />
-          <span className="text-[10px] font-bold uppercase tracking-widest">Update Daily Stock</span>
+          Orders ({orders.length})
+          {orders.filter(o => o.status === 'pending').length > 0 && (
+            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+          )}
         </button>
       </div>
 
-      <section>
-        <h2 className="text-lg font-black uppercase tracking-widest mb-4">Inventory ({products.length})</h2>
-        <div className="space-y-4">
-          {products.map((product) => (
-            <div key={product.id} className="bg-white p-4 rounded-2xl border border-black/5 flex gap-4 items-center shadow-sm">
-              <img src={product.imageUrl} alt={product.name} className="w-16 h-16 object-cover rounded-lg bg-stone-100" />
-              <div className="flex-1">
-                <h3 className="font-bold text-sm truncate">{product.name}</h3>
-                <p className="text-xs text-black/40 font-bold uppercase tracking-widest">₹{product.price} • {product.stockCount} in stock</p>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={() => setEditingProduct(product)} className="p-2 text-black/40 hover:text-black transition-colors">
-                  <Edit2 size={18} />
-                </button>
-                <button onClick={() => handleDeleteProduct(product.id)} className="p-2 text-red-500/40 hover:text-red-500 transition-colors">
-                  <Trash2 size={18} />
-                </button>
-              </div>
+      {activeAdminTab === 'inventory' ? (
+        <>
+          <div className="grid grid-cols-2 gap-4 mb-8">
+            <button
+              onClick={() => setIsAddingProduct(true)}
+              className="bg-black text-white p-4 rounded-2xl flex flex-col items-center gap-2 shadow-lg"
+            >
+              <Plus size={24} />
+              <span className="text-[10px] font-bold uppercase tracking-widest">Add Product</span>
+            </button>
+            <button
+              onClick={() => setIsSendingNotification(true)}
+              className="bg-white border border-black/10 p-4 rounded-2xl flex flex-col items-center gap-2 shadow-sm"
+            >
+              <Bell size={24} />
+              <span className="text-[10px] font-bold uppercase tracking-widest">Notify Users</span>
+            </button>
+            <button
+              onClick={() => setIsUpdatingStock(true)}
+              className="bg-white border border-black/10 p-4 rounded-2xl flex flex-col items-center gap-2 shadow-sm col-span-2"
+            >
+              <RefreshCw size={24} />
+              <span className="text-[10px] font-bold uppercase tracking-widest">Update Daily Stock</span>
+            </button>
+          </div>
+
+          <section>
+            <h2 className="text-lg font-black uppercase tracking-widest mb-4">Inventory ({products.length})</h2>
+            <div className="space-y-4">
+              {products.map((product) => (
+                <div key={product.id} className="bg-white p-4 rounded-2xl border border-black/5 flex gap-4 items-center shadow-sm">
+                  <img src={product.imageUrl} alt={product.name} className="w-16 h-16 object-cover rounded-lg bg-stone-100" />
+                  <div className="flex-1">
+                    <h3 className="font-bold text-sm truncate">{product.name}</h3>
+                    <p className="text-xs text-black/40 font-bold uppercase tracking-widest">₹{product.price} • {product.stockCount} in stock</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => setEditingProduct(product)} className="p-2 text-black/40 hover:text-black transition-colors">
+                      <Edit2 size={18} />
+                    </button>
+                    <button onClick={() => handleDeleteProduct(product.id)} className="p-2 text-red-500/40 hover:text-red-500 transition-colors">
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      </section>
+          </section>
+        </>
+      ) : (
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-black uppercase tracking-widest">Customer Orders</h2>
+            <span className="text-xs font-bold text-black/40 uppercase tracking-widest">
+              {orders.length} Total
+            </span>
+          </div>
+
+          {orders.length === 0 ? (
+            <div className="bg-white p-12 rounded-3xl border border-black/5 text-center">
+              <p className="text-xs font-bold uppercase tracking-widest text-black/30">No customer orders yet</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {orders.map((order) => (
+                <div key={order.id} className="bg-white p-5 rounded-3xl border border-black/5 shadow-sm space-y-3">
+                  <div className="flex items-start justify-between border-b border-black/5 pb-2.5">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-black tracking-wide text-black">
+                          #{order.id.slice(-6).toUpperCase()}
+                        </span>
+                        <span className="text-[10px] font-bold text-black/50">
+                          by {order.userName}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-black/40 font-medium mt-0.5">
+                        {new Date(order.createdAt).toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-sm font-black text-black">₹{order.totalAmount.toLocaleString()}</span>
+                    </div>
+                  </div>
+
+                  {/* Items */}
+                  <div className="space-y-1.5">
+                    {order.items?.map((it, i) => (
+                      <div key={i} className="flex items-center justify-between text-xs text-black/70">
+                        <span className="truncate flex-1 mr-2">
+                          {it.productName} (x{it.quantity || 1}{it.size ? `, ${it.size}` : ''})
+                        </span>
+                        <span className="font-semibold text-black">₹{((it.price || 0) * (it.quantity || 1)).toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {order.shippingAddress && (
+                    <p className="text-[11px] text-black/60 bg-stone-50 p-2.5 rounded-xl">
+                      <span className="font-bold text-black">Address: </span> {order.shippingAddress}
+                    </p>
+                  )}
+
+                  {/* Status controller */}
+                  <div className="pt-2 flex items-center justify-between border-t border-black/5">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-black/40">Status:</span>
+                    <select
+                      value={order.status}
+                      disabled={updatingOrderId === order.id}
+                      onChange={(e) => handleUpdateOrderStatus(order.id, e.target.value as Order['status'])}
+                      className="bg-stone-100 text-black text-xs font-bold rounded-xl px-3 py-1.5 border border-black/10 focus:ring-1 focus:ring-black outline-none"
+                    >
+                      <option value="pending">Pending</option>
+                      <option value="confirmed">Confirmed</option>
+                      <option value="shipped">Shipped</option>
+                      <option value="delivered">Delivered</option>
+                      <option value="cancelled">Cancelled</option>
+                    </select>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Modals */}
       <AnimatePresence>
